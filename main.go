@@ -190,7 +190,8 @@ func getTransactions(user User, rdb *redis.Client) ([]Transaction, error) {
 		return nil, fmt.Errorf("Error parsing JSON:", err)
 	}
 	for _, transaction := range response.Results {
-		if transaction.Amount < 0 && transaction.Category == "PURCHASE" { //Filter out transactions in and non purchases TODO: see if this can be filtered in the API call to reduce data pulled
+		isInt := int(transaction.Amount * 100) == int(transaction.Amount) * 100
+		if transaction.Amount < 0 && transaction.Category == "PURCHASE" && !isInt { //Filter out transactions in and non purchases TODO: see if this can be filtered in the API call to reduce data pulled
 			transaction.Amount = math.Abs(transaction.Amount)
 			transactions = append(transactions, transaction)
 

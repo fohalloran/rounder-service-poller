@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -189,6 +191,7 @@ func getTransactions(user User, rdb *redis.Client) ([]Transaction, error) {
 	}
 	for _, transaction := range response.Results {
 		if transaction.Amount < 0 && transaction.Category == "PURCHASE" { //Filter out transactions in and non purchases TODO: see if this can be filtered in the API call to reduce data pulled
+			transaction.Amount = math.Abs(transaction.Amount)
 			transactions = append(transactions, transaction)
 
 		}
@@ -199,6 +202,33 @@ func getTransactions(user User, rdb *redis.Client) ([]Transaction, error) {
 }
 
 func pushTransactions(transactions []Transaction) error {
+	jsonData, err := json.Marshal(transactions)
+	if err != nil {
+		return fmt.Errorf("error marshaling transactions: %w", err)
+	}
+
+	// Create a POST request
+	req, err := http.NewRequest("POST", "http://localhost:3000/api/transactions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	if err != nil {
+		return fmt.Errorf("Error generating post request for token refresh: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for a successful response
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned non-200 status: %s", resp.Status)
+	}
+
+	fmt.Println("Transactions sent successfully!")
 	return nil
 }
 
@@ -227,6 +257,7 @@ func main() {
 			fmt.Println("Error pushing transactions to kafka:", err)
 			continue
 		}
+
 	}
 
 }

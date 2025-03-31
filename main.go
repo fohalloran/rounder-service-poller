@@ -30,6 +30,12 @@ type ApiResponse struct {
 	Status  string        `json:"status"`
 }
 
+// Struct for the POST request sent to rounder sevice
+type RounderApiBody struct {
+	Transactions     []Transaction `json:"results"`
+	AccountCode string        `json:"account_code"`
+}
+
 // Struct for each transaction in response
 type Transaction struct {
 	Timestamp   string  `json:"timestamp"`
@@ -38,6 +44,7 @@ type Transaction struct {
 	Category    string  `json:"transaction_category"`
 	Amount      float64 `json:"amount"`
 	Currency    string  `json:"currency"`
+	Account_code string `json:"account_code"`
 }
 
 type User struct {
@@ -190,9 +197,10 @@ func getTransactions(user User, rdb *redis.Client) ([]Transaction, error) {
 		return nil, fmt.Errorf("Error parsing JSON:", err)
 	}
 	for _, transaction := range response.Results {
-		isInt := int(transaction.Amount * 100) == int(transaction.Amount) * 100
+		isInt := int(transaction.Amount*100) == int(transaction.Amount)*100
 		if transaction.Amount < 0 && transaction.Category == "PURCHASE" && !isInt { //Filter out transactions in and non purchases TODO: see if this can be filtered in the API call to reduce data pulled
 			transaction.Amount = math.Abs(transaction.Amount)
+			transaction.Account_code = user.AccountCode
 			transactions = append(transactions, transaction)
 
 		}
@@ -203,18 +211,16 @@ func getTransactions(user User, rdb *redis.Client) ([]Transaction, error) {
 }
 
 func pushTransactions(transactions []Transaction) error {
+	
+	
 	jsonData, err := json.Marshal(transactions)
 	if err != nil {
 		return fmt.Errorf("error marshaling transactions: %w", err)
 	}
 
-	// Create a POST request
-	req, err := http.NewRequest("POST", "http://localhost:3000/api/transactions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "http://localhost:3000/api/round-up", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
-	}
-	if err != nil {
-		return fmt.Errorf("Error generating post request for token refresh: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -224,7 +230,6 @@ func pushTransactions(transactions []Transaction) error {
 	}
 	defer resp.Body.Close()
 
-	// Check for a successful response
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned non-200 status: %s", resp.Status)
 	}
@@ -234,6 +239,7 @@ func pushTransactions(transactions []Transaction) error {
 }
 
 func main() {
+	var transactionsToSend []Transaction
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("DATABASE_REDIS_ADDRESS"),
 		Username: os.Getenv("DATABASE_REDIS_USER"),
@@ -253,12 +259,13 @@ func main() {
 			continue
 		}
 		fmt.Println(transactions)
-		err = pushTransactions(transactions)
-		if err != nil {
-			fmt.Println("Error pushing transactions to kafka:", err)
-			continue
-		}
+		transactionsToSend = append(transactionsToSend, transactions...)
+		
 
 	}
+	err = pushTransactions(transactionsToSend)
+		if err != nil {
+			fmt.Println("Error pushing transactions to kafka:", err)
+		}
 
 }
